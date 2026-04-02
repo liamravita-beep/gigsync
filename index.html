@@ -432,8 +432,9 @@ You can also add your own tags like [Intro], [Outro], [Hook], [Pre-Chorus], [Int
     </div>
   </div>
   <div id="setlistDetailSongs"></div>
-  <div style="padding:16px;display:flex;gap:8px">
+  <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn-ghost" style="flex:1" onclick="editCurrentSetlist()">Edit Setlist</button>
+    <button class="btn-ghost" style="flex:1" onclick="exportSetlist()">Share Setlist</button>
     <button class="btn-ghost" style="flex:1;color:#e74c3c;border-color:#e74c3c" onclick="deleteCurrentSetlist()">Delete</button>
   </div>
 </div>
@@ -1090,7 +1091,37 @@ function handleImport(event) {
   reader.onload = (e) => {
     try {
       const data = JSON.parse(e.target.result);
-      if (data.songs && data.setlists) {
+
+      // Check if this is a shared setlist (has type: 'shared-setlist')
+      if (data.type === 'shared-setlist' && data.setlist && data.songs) {
+        const songCount = data.songs.length;
+        showConfirm('Import Shared Setlist', `Add "${data.setlist.name}" (${songCount} song${songCount !== 1 ? 's' : ''}) to your library?`, () => {
+          // Add songs that don't already exist (match by title + artist)
+          const newSongIdMap = {};
+          data.songs.forEach(song => {
+            const existing = DB.songs.find(s => s.title.toLowerCase() === song.title.toLowerCase() && s.artist.toLowerCase() === song.artist.toLowerCase());
+            if (existing) {
+              newSongIdMap[song.id] = existing.id;
+            } else {
+              const newId = genId();
+              newSongIdMap[song.id] = newId;
+              DB.songs.push({ id: newId, title: song.title, artist: song.artist, lyrics: song.lyrics });
+            }
+          });
+          // Add the setlist with remapped song IDs
+          const newSetlist = {
+            id: genId(),
+            name: data.setlist.name,
+            songIds: data.setlist.songIds.map(oldId => newSongIdMap[oldId]).filter(Boolean)
+          };
+          DB.setlists.push(newSetlist);
+          saveData();
+          renderLibrary();
+          renderSetlists();
+          alert(`"${newSetlist.name}" added with ${newSetlist.songIds.length} songs!`);
+        });
+      } else if (data.songs && data.setlists) {
+        // Full backup import
         showConfirm('Import Data', 'This will replace all your current songs and setlists. Continue?', () => {
           DB.songs = data.songs;
           DB.setlists = data.setlists;
@@ -1109,6 +1140,27 @@ function handleImport(event) {
   };
   reader.readAsText(file);
   event.target.value = '';
+}
+
+// Export a single setlist + its songs as a shareable file
+function exportSetlist() {
+  const sl = DB.setlists.find(s => s.id === currentSetlistId);
+  if (!sl) return;
+
+  const songs = sl.songIds.map(sid => DB.songs.find(s => s.id === sid)).filter(Boolean);
+  const shareData = {
+    type: 'shared-setlist',
+    setlist: { name: sl.name, songIds: sl.songIds },
+    songs: songs
+  };
+
+  const blob = new Blob([JSON.stringify(shareData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'gigsync-setlist-' + sl.name.replace(/[^a-z0-9]/gi, '-').toLowerCase() + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ==================== CONFIRM MODAL ====================
