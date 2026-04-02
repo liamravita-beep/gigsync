@@ -189,7 +189,7 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 16px; padding-top: calc(8px + var(--safe-top));
   background: var(--bg2); border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+  flex-shrink: 0; position: relative; z-index: 100;
 }
 .perf-header .song-counter { font-size: 13px; color: var(--text2); }
 .perf-header .song-name { font-size: 16px; font-weight: 700; text-align: center; flex: 1; margin: 0 8px; }
@@ -226,7 +226,7 @@ body {
 .perf-lyrics .section-instrumental { color: var(--instrumental); }
 
 .perf-nav-zones {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 50;
+  position: fixed; top: 60px; left: 0; right: 0; bottom: 0; z-index: 50;
   display: flex; pointer-events: none;
 }
 .perf-nav-zone {
@@ -455,11 +455,11 @@ You can also add your own tags like [Intro], [Outro], [Hook], [Pre-Chorus], [Int
     <div class="perf-lyrics" id="perfLyrics"></div>
   </div>
   <div class="perf-nav-zones" id="perfNavZones">
-    <div class="perf-nav-zone" id="perfPrev" ontouchstart="perfPrevSong()" onclick="perfPrevSong()">
+    <div class="perf-nav-zone" id="perfPrev">
       <span class="nav-arrow">&lsaquo;</span>
     </div>
     <div class="perf-scroll-zone"></div>
-    <div class="perf-nav-zone" id="perfNext" ontouchstart="perfNextSong()" onclick="perfNextSong()">
+    <div class="perf-nav-zone" id="perfNext">
       <span class="nav-arrow">&rsaquo;</span>
     </div>
   </div>
@@ -870,27 +870,49 @@ function renderPerformance() {
   document.getElementById('perfBody').scrollTop = 0;
 }
 
+let perfNavCooldown = false;
+function perfNavGuard(fn) {
+  if (perfNavCooldown) return;
+  perfNavCooldown = true;
+  fn();
+  setTimeout(() => { perfNavCooldown = false; }, 350);
+}
+
 function perfNextSong() {
-  const sl = DB.setlists.find(s => s.id === perfSetlistId);
-  if (!sl) return;
-  if (perfIndex < sl.songIds.length - 1) {
-    perfIndex++;
-    renderPerformance();
-    showPerfIndicator();
-  } else {
-    showPerfIndicator('End of Setlist');
-  }
+  perfNavGuard(() => {
+    const sl = DB.setlists.find(s => s.id === perfSetlistId);
+    if (!sl) return;
+    if (perfIndex < sl.songIds.length - 1) {
+      perfIndex++;
+      renderPerformance();
+      showPerfIndicator();
+    } else {
+      showPerfIndicator('End of Setlist');
+    }
+  });
 }
 
 function perfPrevSong() {
-  if (perfIndex > 0) {
-    perfIndex--;
-    renderPerformance();
-    showPerfIndicator();
-  } else {
-    showPerfIndicator('Start of Setlist');
-  }
+  perfNavGuard(() => {
+    if (perfIndex > 0) {
+      perfIndex--;
+      renderPerformance();
+      showPerfIndicator();
+    } else {
+      showPerfIndicator('Start of Setlist');
+    }
+  });
 }
+
+// Use touchend (not touchstart+click) to prevent double-firing on mobile
+// Falls back to click for desktop/testing
+['perfPrev', 'perfNext'].forEach(id => {
+  const el = document.getElementById(id);
+  const fn = id === 'perfNext' ? perfNextSong : perfPrevSong;
+  let touchFired = false;
+  el.addEventListener('touchend', (e) => { e.preventDefault(); touchFired = true; fn(); });
+  el.addEventListener('click', () => { if (!touchFired) fn(); touchFired = false; });
+});
 
 let perfIndicatorTimer;
 function showPerfIndicator(text) {
