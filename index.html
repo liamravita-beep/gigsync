@@ -904,14 +904,31 @@ function perfPrevSong() {
   });
 }
 
-// Use touchend (not touchstart+click) to prevent double-firing on mobile
-// Falls back to click for desktop/testing
+// Double-tap to navigate (prevents accidental triggers while scrolling)
 ['perfPrev', 'perfNext'].forEach(id => {
   const el = document.getElementById(id);
   const fn = id === 'perfNext' ? perfNextSong : perfPrevSong;
-  let touchFired = false;
-  el.addEventListener('touchend', (e) => { e.preventDefault(); touchFired = true; fn(); });
-  el.addEventListener('click', () => { if (!touchFired) fn(); touchFired = false; });
+  let lastTap = 0;
+  let tapTimeout = null;
+
+  function handleTap(e) {
+    e.preventDefault();
+    const now = Date.now();
+    if (now - lastTap < 400) {
+      // Double-tap detected — navigate
+      clearTimeout(tapTimeout);
+      lastTap = 0;
+      fn();
+    } else {
+      // First tap — briefly flash the arrow as a hint
+      lastTap = now;
+      const arrow = el.querySelector('.nav-arrow');
+      if (arrow) { arrow.style.opacity = '0.3'; clearTimeout(tapTimeout); tapTimeout = setTimeout(() => { arrow.style.opacity = '0'; }, 400); }
+    }
+  }
+
+  el.addEventListener('touchend', handleTap);
+  el.addEventListener('click', handleTap);
 });
 
 let perfIndicatorTimer;
@@ -1138,7 +1155,7 @@ document.getElementById('perfBody').addEventListener('touchstart', (e) => {
 document.getElementById('perfBody').addEventListener('touchend', (e) => {
   const dx = e.changedTouches[0].clientX - touchStartX;
   const dy = e.changedTouches[0].clientY - touchStartY;
-  if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 2) {
+  if (Math.abs(dx) > 120 && Math.abs(dx) > Math.abs(dy) * 3) {
     if (dx < 0) perfNextSong();
     else perfPrevSong();
   }
