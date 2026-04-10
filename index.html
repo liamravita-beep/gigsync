@@ -520,7 +520,7 @@ You can also add your own tags like [Intro], [Outro], [Hook], [Pre-Chorus], [Int
 const DB = {
   songs: [],
   setlists: [],
-  settings: { darkMode: true, defaultFontSize: 22, wakeLock: true }
+  settings: { darkMode: true, defaultFontSize: 22, wakeLock: true, lastBackup: null }
 };
 
 function loadData() {
@@ -1071,6 +1071,8 @@ function releaseWakeLock() {
 
 // ==================== EXPORT / IMPORT ====================
 function exportData() {
+  DB.settings.lastBackup = Date.now();
+  saveData();
   const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1241,12 +1243,40 @@ showAddSong = function() {
   if (delBtn) delBtn.style.display = 'none';
 };
 
+// ==================== BACKUP REMINDER ====================
+function checkBackupReminder() {
+  // Only remind if user has at least 1 song
+  if (DB.songs.length === 0) return;
+
+  const twoWeeks = 14 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const last = DB.settings.lastBackup;
+
+  // Show reminder if never backed up, or last backup was more than 2 weeks ago
+  if (last === null || (now - last) > twoWeeks) {
+    const daysSince = last ? Math.floor((now - last) / (24 * 60 * 60 * 1000)) : null;
+    const msg = last
+      ? `It's been ${daysSince} days since your last backup. Export your data now to keep your ${DB.songs.length} song${DB.songs.length !== 1 ? 's' : ''} safe?`
+      : `You have ${DB.songs.length} song${DB.songs.length !== 1 ? 's' : ''} but haven't backed up yet. Export now to keep them safe?`;
+
+    showConfirm('Backup Reminder', msg, () => {
+      exportData();
+    });
+    // Update the button text for this modal
+    document.getElementById('confirmAction').textContent = 'Export Now';
+    document.getElementById('confirmAction').className = 'btn';
+  }
+}
+
 // ==================== INIT ====================
 loadData();
 applyTheme();
 renderLibrary();
 renderSetlists();
 renderSettings();
+
+// Check backup reminder after a brief delay so the app loads first
+setTimeout(checkBackupReminder, 1500);
 
 // Register service worker
 if ('serviceWorker' in navigator) {

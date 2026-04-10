@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gigsync-v5';
+const CACHE_NAME = 'gigsync-v6';
 const ASSETS = [
   './',
   './index.html',
