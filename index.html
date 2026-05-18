@@ -860,18 +860,34 @@ function initDragAndDrop() {
         container.appendChild(dragState.placeholder);
       }
 
-      // Auto-scroll if near edges
-      const scrollEl = dragState.scrollParent || window;
-      const edgeThreshold = 60;
-      if (touch.clientY < edgeThreshold) {
-        scrollEl.scrollBy ? scrollEl.scrollBy(0, -8) : (scrollEl.scrollTop -= 8);
-      } else if (touch.clientY > window.innerHeight - edgeThreshold) {
-        scrollEl.scrollBy ? scrollEl.scrollBy(0, 8) : (scrollEl.scrollTop += 8);
+      // Track touch position for auto-scroll
+      dragState.touchY = touch.clientY;
+
+      // Start auto-scroll interval if not already running
+      if (!dragState.scrollInterval) {
+        dragState.scrollInterval = setInterval(() => {
+          if (!dragState) return;
+          const edgeZone = 100;
+          const speed = 10;
+          if (dragState.touchY < edgeZone) {
+            const intensity = 1 - (dragState.touchY / edgeZone);
+            window.scrollBy(0, -(speed + intensity * 15));
+          } else if (dragState.touchY > window.innerHeight - edgeZone) {
+            const intensity = 1 - ((window.innerHeight - dragState.touchY) / edgeZone);
+            window.scrollBy(0, speed + intensity * 15);
+          }
+        }, 16);
       }
     }, { passive: false });
 
     const endDrag = () => {
       if (!dragState) return;
+
+      // Stop auto-scroll
+      if (dragState.scrollInterval) {
+        clearInterval(dragState.scrollInterval);
+        dragState.scrollInterval = null;
+      }
 
       // Determine new index from placeholder position
       const allItems = Array.from(container.children);
