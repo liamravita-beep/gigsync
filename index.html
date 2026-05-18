@@ -159,12 +159,27 @@ body {
 .song-picker-item.selected .song-picker-check { background: var(--accent); border-color: var(--accent); }
 
 /* Setlist Reorder */
-.setlist-order { margin: 8px 16px; }
+.setlist-order { margin: 8px 16px; position: relative; }
 .setlist-order-item {
   display: flex; align-items: center; gap: 12px;
   padding: 14px; background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; margin-bottom: 8px;
+  border-radius: 10px; margin-bottom: 8px; position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  user-select: none; -webkit-user-select: none;
 }
+.setlist-order-item.dragging {
+  opacity: 0.9; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  z-index: 100; border-color: var(--accent);
+  transition: none;
+}
+.setlist-order-item .drag-handle {
+  display: flex; flex-direction: column; gap: 3px; padding: 8px 4px;
+  cursor: grab; flex-shrink: 0; touch-action: none;
+}
+.setlist-order-item .drag-handle span {
+  display: block; width: 18px; height: 2px; background: var(--text2); border-radius: 1px;
+}
+.setlist-order-item.dragging .drag-handle span { background: var(--accent); }
 .setlist-order-item .num {
   width: 28px; height: 28px; background: var(--bg3); border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -173,12 +188,10 @@ body {
 .setlist-order-item .song-info { flex: 1; }
 .setlist-order-item .song-title { font-weight: 600; font-size: 15px; }
 .setlist-order-item .song-artist { font-size: 12px; color: var(--text2); }
-.reorder-btns { display: flex; flex-direction: column; gap: 2px; }
-.reorder-btns button {
-  background: var(--bg3); border: none; color: var(--text); width: 30px; height: 24px;
-  border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;
+.drag-drop-placeholder {
+  border: 2px dashed var(--accent); border-radius: 10px; margin-bottom: 8px;
+  background: rgba(233,69,96,0.05); transition: height 0.15s ease;
 }
-.reorder-btns button:active { background: var(--accent); }
 .remove-song-btn {
   background: none; border: none; color: var(--text2); font-size: 20px;
   cursor: pointer; padding: 4px 8px;
@@ -417,7 +430,7 @@ You can also add your own tags like [Intro], [Outro], [Hook], [Pre-Chorus], [Int
   </div>
   <div id="songPicker" class="song-picker"></div>
   <div class="form-group" id="orderSection" style="display:none">
-    <label>Song Order <span style="font-weight:400;text-transform:none;letter-spacing:0">(drag or use arrows)</span></label>
+    <label>Song Order <span style="font-weight:400;text-transform:none;letter-spacing:0">(hold and drag to reorder)</span></label>
   </div>
   <div id="setlistOrder" class="setlist-order"></div>
 </div>
@@ -762,27 +775,146 @@ function renderSetlistOrderEditor() {
     const song = DB.songs.find(s => s.id === sid);
     if (!song) return '';
     return `
-      <div class="setlist-order-item">
+      <div class="setlist-order-item" data-index="${i}">
+        <div class="drag-handle"><span></span><span></span><span></span></div>
         <div class="num">${i + 1}</div>
         <div class="song-info">
           <div class="song-title">${esc(song.title)}</div>
           <div class="song-artist">${esc(song.artist)}</div>
         </div>
-        <div class="reorder-btns">
-          <button onclick="moveSong(${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.3"' : ''}>▲</button>
-          <button onclick="moveSong(${i}, 1)" ${i === selectedSongIds.length - 1 ? 'disabled style="opacity:0.3"' : ''}>▼</button>
-        </div>
         <button class="remove-song-btn" onclick="removeSongFromSetlist(${i})">×</button>
       </div>
     `;
   }).join('');
+
+  // Attach drag listeners to handles
+  initDragAndDrop();
 }
 
-function moveSong(index, dir) {
-  const newIndex = index + dir;
-  if (newIndex < 0 || newIndex >= selectedSongIds.length) return;
-  [selectedSongIds[index], selectedSongIds[newIndex]] = [selectedSongIds[newIndex], selectedSongIds[index]];
-  renderSetlistOrderEditor();
+// ==================== DRAG AND DROP REORDER ====================
+function initDragAndDrop() {
+  const container = document.getElementById('setlistOrder');
+  const items = container.querySelectorAll('.setlist-order-item');
+
+  items.forEach(item => {
+    const handle = item.querySelector('.drag-handle');
+    let dragState = null;
+
+    handle.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const rect = item.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      dragState = {
+        el: item,
+        index: parseInt(item.dataset.index),
+        startY: touch.clientY,
+        offsetY: touch.clientY - rect.top,
+        itemHeight: rect.height + 8, // including margin
+        containerTop: containerRect.top,
+        scrollParent: findScrollParent(container),
+      };
+
+      // Create placeholder
+      const placeholder = document.createElement('div');
+      placeholder.className = 'drag-drop-placeholder';
+      placeholder.style.height = rect.height + 'px';
+      item.parentNode.insertBefore(placeholder, item);
+      dragState.placeholder = placeholder;
+
+      // Float the item
+      item.classList.add('dragging');
+      item.style.position = 'fixed';
+      item.style.left = rect.left + 'px';
+      item.style.width = rect.width + 'px';
+      item.style.top = (touch.clientY - dragState.offsetY) + 'px';
+      item.style.zIndex = '200';
+    }, { passive: false });
+
+    handle.addEventListener('touchmove', (e) => {
+      if (!dragState) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      const y = touch.clientY - dragState.offsetY;
+      dragState.el.style.top = y + 'px';
+
+      // Figure out where to move the placeholder
+      const siblings = Array.from(container.querySelectorAll('.setlist-order-item:not(.dragging), .drag-drop-placeholder'));
+      let inserted = false;
+
+      for (let i = 0; i < siblings.length; i++) {
+        const sib = siblings[i];
+        if (sib === dragState.placeholder) continue;
+        const sibRect = sib.getBoundingClientRect();
+        const sibMid = sibRect.top + sibRect.height / 2;
+
+        if (touch.clientY < sibMid) {
+          container.insertBefore(dragState.placeholder, sib);
+          inserted = true;
+          break;
+        }
+      }
+
+      if (!inserted) {
+        container.appendChild(dragState.placeholder);
+      }
+
+      // Auto-scroll if near edges
+      const scrollEl = dragState.scrollParent || window;
+      const edgeThreshold = 60;
+      if (touch.clientY < edgeThreshold) {
+        scrollEl.scrollBy ? scrollEl.scrollBy(0, -8) : (scrollEl.scrollTop -= 8);
+      } else if (touch.clientY > window.innerHeight - edgeThreshold) {
+        scrollEl.scrollBy ? scrollEl.scrollBy(0, 8) : (scrollEl.scrollTop += 8);
+      }
+    }, { passive: false });
+
+    const endDrag = () => {
+      if (!dragState) return;
+
+      // Determine new index from placeholder position
+      const allItems = Array.from(container.children);
+      const newIndex = allItems.indexOf(dragState.placeholder);
+      const oldIndex = dragState.index;
+
+      // Clean up styles
+      dragState.el.classList.remove('dragging');
+      dragState.el.style.position = '';
+      dragState.el.style.left = '';
+      dragState.el.style.width = '';
+      dragState.el.style.top = '';
+      dragState.el.style.zIndex = '';
+
+      // Remove placeholder
+      if (dragState.placeholder.parentNode) {
+        dragState.placeholder.parentNode.removeChild(dragState.placeholder);
+      }
+
+      // Reorder the array
+      if (newIndex !== -1 && newIndex !== oldIndex) {
+        const adjustedNew = newIndex > oldIndex ? newIndex - 1 : newIndex;
+        const moved = selectedSongIds.splice(oldIndex, 1)[0];
+        selectedSongIds.splice(adjustedNew, 0, moved);
+      }
+
+      dragState = null;
+      renderSetlistOrderEditor();
+    };
+
+    handle.addEventListener('touchend', endDrag);
+    handle.addEventListener('touchcancel', endDrag);
+  });
+}
+
+function findScrollParent(el) {
+  let node = el.parentElement;
+  while (node) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll)/.test(style.overflow + style.overflowY)) return node;
+    node = node.parentElement;
+  }
+  return null;
 }
 
 function removeSongFromSetlist(index) {
